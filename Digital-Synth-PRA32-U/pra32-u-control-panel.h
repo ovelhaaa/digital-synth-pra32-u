@@ -19,6 +19,13 @@ static volatile uint8_t  s_adc_control_value[3];
 static volatile uint8_t  s_adc_control_target[3] = { 0xFF, 0xFF, 0xFF };
 static volatile boolean  s_adc_control_catched[3];
 
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+static volatile uint8_t s_encoder_selected_slot = 0;
+static volatile uint8_t s_encoder_mode = 0;  // 0: Navigate, 1: Adjust
+static volatile uint8_t s_encoder_clk_prev = 0;
+static volatile uint8_t s_encoder_sw_prev = 1;
+#endif
+
 #if defined(PRA32_U_USE_CONTROL_PANEL)
 static          uint32_t s_prev_key_current_value;
 static          uint32_t s_next_key_current_value;
@@ -236,6 +243,21 @@ static INLINE void PRA32_U_ControlPanel_update_page() {
   std::memcpy(&s_display_buffer[1][11], current_page.control_target_c_name_line_0, 10);
   std::memcpy(&s_display_buffer[2][11], current_page.control_target_c_name_line_1, 10);
   s_adc_control_target[2]             = current_page.control_target_c;
+
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+  // Pre-seed the current values from the synth parameters
+  for (int i = 0; i < 3; ++i) {
+    if (s_adc_control_target[i] < 128 + 64) {
+       uint8_t current_val = g_synth.current_controller_value(s_adc_control_target[i]);
+#if defined(PRA32_U_ANALOG_INPUT_REVERSED)
+       s_adc_current_value[i] = (127 - current_val) * PRA32_U_ANALOG_INPUT_DENOMINATOR;
+#else
+       s_adc_current_value[i] = current_val * PRA32_U_ANALOG_INPUT_DENOMINATOR;
+#endif
+       s_adc_control_catched[i] = true;
+    }
+  }
+#endif
 
   s_display_draw_counter = -1;
 }
@@ -561,9 +583,14 @@ static INLINE void PRA32_U_ControlPanel_set_draw_position(uint8_t x, uint8_t y) 
   i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, commands, sizeof(commands), false);
 }
 
-static INLINE void PRA32_U_ControlPanel_draw_character(uint8_t c) {
+static INLINE void PRA32_U_ControlPanel_draw_character(uint8_t c, bool invert = false) {
   uint8_t data[] = {0x40,  0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
   std::memcpy(&data[1], g_control_panel_font_table[c], 6);
+  if (invert) {
+    for (int i = 1; i <= 6; ++i) {
+      data[i] = ~data[i];
+    }
+  }
   i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, data, sizeof(data), false);
 }
 
@@ -954,6 +981,15 @@ INLINE void PRA32_U_ControlPanel_setup() {
   adc_gpio_init(28);
 #endif  // defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT)
 
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+  pinMode(PRA32_U_ENCODER_PIN_CLK, INPUT_PULLUP);
+  pinMode(PRA32_U_ENCODER_PIN_DT, INPUT_PULLUP);
+  pinMode(PRA32_U_ENCODER_PIN_SW, INPUT_PULLUP);
+
+  // Initial state read
+  s_encoder_clk_prev = digitalRead(PRA32_U_ENCODER_PIN_CLK);
+#endif
+
 #if defined(PRA32_U_USE_CONTROL_PANEL_OLED_DISPLAY)
   i2c_init(PRA32_U_OLED_DISPLAY_I2C, 400 * 1000);
   i2c_set_slave_mode(PRA32_U_OLED_DISPLAY_I2C, false, 0);
@@ -992,6 +1028,74 @@ INLINE void PRA32_U_ControlPanel_setup() {
 
 INLINE void PRA32_U_ControlPanel_initialize_parameters() {
 }
+
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+INLINE void PRA32_U_ControlPanel_update_encoder() {
+#if defined(PRA32_U_USE_CONTROL_PANEL)
+  // Encoder switch
+  static uint32_t s_sw_counter = 0;
+  uint8_t sw = digitalRead(PRA32_U_ENCODER_PIN_SW);
+
+  if (sw == 0) { // Pressed (assuming active low)
+    if (s_sw_counter < 100) s_sw_counter++; // Limit counter
+  } else {
+    s_sw_counter = 0;
+    s_encoder_sw_prev = 1;
+  }
+
+  if (s_sw_counter > 10) { // Threshold
+     if (s_encoder_sw_prev == 1) {
+       s_encoder_mode = !s_encoder_mode; // Toggle mode
+       s_encoder_sw_prev = 0;
+     }
+  }
+
+  // Encoder rotation
+  uint8_t clk = digitalRead(PRA32_U_ENCODER_PIN_CLK);
+  if (clk != s_encoder_clk_prev) {
+    s_encoder_clk_prev = clk;
+    if (clk == 0) {
+      uint8_t dt = digitalRead(PRA32_U_ENCODER_PIN_DT);
+      int32_t direction = (dt == 0) ? -1 : 1;
+#if defined(PRA32_U_ANALOG_INPUT_REVERSED)
+      direction = -direction;
+#endif
+
+      if (s_encoder_mode == 0) {
+        // Navigation Mode
+        // We use direction to change selected slot.
+        // direction is +/- 1.
+        int slot = s_encoder_selected_slot;
+        if (direction > 0) {
+          slot++;
+          if (slot > 2) slot = 0;
+        } else {
+          slot--;
+          if (slot < 0) slot = 2;
+        }
+        s_encoder_selected_slot = slot;
+      } else {
+        // Adjustment Mode
+        int32_t change = direction * PRA32_U_ANALOG_INPUT_DENOMINATOR;
+
+        // Update the current value for the selected slot
+        int32_t new_value = s_adc_current_value[s_encoder_selected_slot] + change;
+
+        // Clamp
+        int32_t max_val = 127 * PRA32_U_ANALOG_INPUT_DENOMINATOR;
+        if (new_value < 0) new_value = 0;
+        if (new_value > max_val) new_value = max_val;
+
+        s_adc_current_value[s_encoder_selected_slot] = new_value;
+
+        // Ensure "catched" is true so updates are sent
+        s_adc_control_catched[s_encoder_selected_slot] = true;
+      }
+    }
+  }
+#endif
+}
+#endif
 
 INLINE void PRA32_U_ControlPanel_update_analog_inputs(uint32_t loop_counter) {
   static_cast<void>(loop_counter);
@@ -1069,11 +1173,11 @@ INLINE void PRA32_U_ControlPanel_update_control() {
   static uint32_t s_initialize_counter = 0;
   if (s_initialize_counter < 75) {
     ++s_initialize_counter;
-#if defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT)
+#if defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT) || defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
     s_adc_control_value[0] = PRA32_U_ControlPanel_adc_control_value_candidate(0);
     s_adc_control_value[1] = PRA32_U_ControlPanel_adc_control_value_candidate(1);
     s_adc_control_value[2] = PRA32_U_ControlPanel_adc_control_value_candidate(2);
-#endif  // defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT)
+#endif
     return;
   }
 
@@ -1219,7 +1323,7 @@ INLINE void PRA32_U_ControlPanel_update_control() {
 
 #endif  // defined(PRA32_U_USE_CONTROL_PANEL_KEY_INPUT)
 
-#if defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT)
+#if defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT) || defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
   static uint32_t s_adc_number_to_check = 0;
 
   boolean updated = PRA32_U_ControlPanel_update_control_adc(s_adc_number_to_check);
@@ -1234,7 +1338,7 @@ INLINE void PRA32_U_ControlPanel_update_control() {
       s_adc_number_to_check = (s_adc_number_to_check + 1) % 3;
     }
   }
-#endif  // defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT)
+#endif
 
 #endif  // defined(PRA32_U_USE_CONTROL_PANEL)
 }
@@ -1303,11 +1407,19 @@ INLINE void PRA32_U_ControlPanel_update_display_buffer(uint32_t loop_counter) {
       char value_display_text[5] = {};
       boolean exists = PRA32_U_ControlPanel_calc_value_display(adc_control_target_0, current_controller_value, value_display_text);
       if (exists) {
-        s_display_buffer[7][ 5] = '[';
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+        if (s_encoder_mode == 1 && s_encoder_selected_slot == 0) {
+          s_display_buffer[7][ 5] = '*';
+          s_display_buffer[7][ 9] = '*';
+        } else
+#endif
+        {
+          s_display_buffer[7][ 5] = '[';
+          s_display_buffer[7][ 9] = ']';
+        }
         s_display_buffer[7][ 6] = value_display_text[0];
         s_display_buffer[7][ 7] = value_display_text[1];
         s_display_buffer[7][ 8] = value_display_text[2];
-        s_display_buffer[7][ 9] = ']';
       } else {
         std::memset(&s_display_buffer[7][ 5], ' ', 5);
       }
@@ -1340,11 +1452,19 @@ INLINE void PRA32_U_ControlPanel_update_display_buffer(uint32_t loop_counter) {
       char value_display_text[5] = {};
       boolean exists = PRA32_U_ControlPanel_calc_value_display(adc_control_target_1, current_controller_value, value_display_text);
       if (exists) {
-        s_display_buffer[7][16] = '[';
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+        if (s_encoder_mode == 1 && s_encoder_selected_slot == 1) {
+          s_display_buffer[7][16] = '*';
+          s_display_buffer[7][20] = '*';
+        } else
+#endif
+        {
+          s_display_buffer[7][16] = '[';
+          s_display_buffer[7][20] = ']';
+        }
         s_display_buffer[7][17] = value_display_text[0];
         s_display_buffer[7][18] = value_display_text[1];
         s_display_buffer[7][19] = value_display_text[2];
-        s_display_buffer[7][20] = ']';
       } else {
         std::memset(&s_display_buffer[7][16], ' ', 5);
       }
@@ -1377,11 +1497,19 @@ INLINE void PRA32_U_ControlPanel_update_display_buffer(uint32_t loop_counter) {
       char value_display_text[5] = {};
       boolean exists = PRA32_U_ControlPanel_calc_value_display(adc_control_target_2, current_controller_value, value_display_text);
       if (exists) {
-        s_display_buffer[3][16] = '[';
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+        if (s_encoder_mode == 1 && s_encoder_selected_slot == 2) {
+          s_display_buffer[3][16] = '*';
+          s_display_buffer[3][20] = '*';
+        } else
+#endif
+        {
+          s_display_buffer[3][16] = '[';
+          s_display_buffer[3][20] = ']';
+        }
         s_display_buffer[3][17] = value_display_text[0];
         s_display_buffer[3][18] = value_display_text[1];
         s_display_buffer[3][19] = value_display_text[2];
-        s_display_buffer[3][20] = ']';
       } else {
         std::memset(&s_display_buffer[3][16], ' ', 5);
       }
@@ -1486,7 +1614,20 @@ INLINE void PRA32_U_ControlPanel_update_display(uint32_t loop_counter) {
     if (s_display_draw_position_update) {
       PRA32_U_ControlPanel_set_draw_position(s_display_draw_position_x, s_display_draw_position_y);
     } else {
-      PRA32_U_ControlPanel_draw_character(s_display_buffer[s_display_draw_position_y][s_display_draw_position_x]);
+      boolean invert = false;
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+      if (s_encoder_selected_slot == 0) {
+        // Param A: Rows 5,6,7. Col 0..9.
+        if (s_display_draw_position_y >= 5 && s_display_draw_position_y <= 7 && s_display_draw_position_x <= 9) invert = true;
+      } else if (s_encoder_selected_slot == 1) {
+        // Param B: Rows 5,6,7. Col 11..20.
+        if (s_display_draw_position_y >= 5 && s_display_draw_position_y <= 7 && s_display_draw_position_x >= 11) invert = true;
+      } else if (s_encoder_selected_slot == 2) {
+        // Param C: Rows 1,2,3. Col 11..20. (Note: Row 3 is value, 1,2 are name)
+        if (s_display_draw_position_y >= 1 && s_display_draw_position_y <= 3 && s_display_draw_position_x >= 11) invert = true;
+      }
+#endif
+      PRA32_U_ControlPanel_draw_character(s_display_buffer[s_display_draw_position_y][s_display_draw_position_x], invert);
     }
   }
 #endif  // defined(PRA32_U_USE_CONTROL_PANEL_OLED_DISPLAY)

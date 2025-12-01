@@ -53,11 +53,16 @@
 #define PRA32_U_KEY_ANTI_CHATTERING_WAIT        (15)
 #define PRA32_U_KEY_LONG_PRESS_WAIT             (375)
 
-#define PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT  // Use ADC0, ADC1, and ADC2
+//#define PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT  // Use ADC0, ADC1, and ADC2
 #define PRA32_U_ANALOG_INPUT_REVERSED           (true)
 #define PRA32_U_ANALOG_INPUT_CORRECTION         (-504)
 #define PRA32_U_ANALOG_INPUT_THRESHOLD          (504)
 #define PRA32_U_ANALOG_INPUT_DENOMINATOR        (504)
+
+#define PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER
+#define PRA32_U_ENCODER_PIN_CLK                 (26)
+#define PRA32_U_ENCODER_PIN_DT                  (27)
+#define PRA32_U_ENCODER_PIN_SW                  (28)
 
 #define PRA32_U_USE_CONTROL_PANEL_OLED_DISPLAY  // Use SSD1306 monochrome 128x64 OLED
 #define PRA32_U_OLED_DISPLAY_I2C                (i2c1)
@@ -143,7 +148,11 @@ void __not_in_flash_func(loop1)() {
       s_loop_counter = 0;
     }
 
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+    PRA32_U_ControlPanel_update_encoder();
+#else
     PRA32_U_ControlPanel_update_analog_inputs(s_loop_counter);
+#endif
     PRA32_U_ControlPanel_update_display_buffer(s_loop_counter);
     PRA32_U_ControlPanel_update_display(s_loop_counter);
 
