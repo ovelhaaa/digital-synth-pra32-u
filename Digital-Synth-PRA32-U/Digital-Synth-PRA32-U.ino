@@ -60,14 +60,14 @@
 #define PRA32_U_ANALOG_INPUT_DENOMINATOR        (504)
 
 #define PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER
-#define PRA32_U_ENCODER_PIN_CLK                 (26)
-#define PRA32_U_ENCODER_PIN_DT                  (27)
-#define PRA32_U_ENCODER_PIN_SW                  (28)
+#define PRA32_U_ENCODER_PIN_CLK                 (2)
+#define PRA32_U_ENCODER_PIN_DT                  (3)
+#define PRA32_U_ENCODER_PIN_SW                  (13)
 
 #define PRA32_U_USE_CONTROL_PANEL_OLED_DISPLAY  // Use SSD1306 monochrome 128x64 OLED
 #define PRA32_U_OLED_DISPLAY_I2C                (i2c1)
-#define PRA32_U_OLED_DISPLAY_I2C_SDA_PIN        (6)
-#define PRA32_U_OLED_DISPLAY_I2C_SCL_PIN        (7)
+#define PRA32_U_OLED_DISPLAY_I2C_SDA_PIN        (14)
+#define PRA32_U_OLED_DISPLAY_I2C_SCL_PIN        (15)
 #define PRA32_U_OLED_DISPLAY_I2C_ADDRESS        (0x3C)
 #define PRA32_U_OLED_DISPLAY_CONTRAST           (0xFF)
 #define PRA32_U_OLED_DISPLAY_ROTATION           (true)
