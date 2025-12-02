@@ -21,7 +21,6 @@ static volatile boolean  s_adc_control_catched[3];
 
 #if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
 static volatile uint8_t s_encoder_selected_slot = 0;
-static volatile uint8_t s_encoder_mode = 0;  // 0: Navigate, 1: Adjust
 static volatile uint8_t s_encoder_clk_prev = 0;
 static volatile uint8_t s_encoder_sw_prev = 1;
 #endif
@@ -262,6 +261,7 @@ static INLINE void PRA32_U_ControlPanel_update_page() {
   s_display_draw_counter = -1;
 }
 
+#if defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT) || defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
 static INLINE uint8_t PRA32_U_ControlPanel_adc_control_value_candidate(uint32_t adc_number) {
   volatile int32_t adc_control_value_candidate;
 
@@ -281,6 +281,7 @@ static INLINE uint8_t PRA32_U_ControlPanel_adc_control_value_candidate(uint32_t 
 
   return adc_control_value_candidate;
 }
+#endif
 
 static INLINE boolean PRA32_U_ControlPanel_process_note_off_on() {
   static uint8_t s_panel_playing_note_pitch = 0xFF;
@@ -495,6 +496,7 @@ static INLINE void PRA32_U_ControlPanel_update_control_seq() {
   }
 }
 
+#if defined(PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT) || defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
 static INLINE boolean PRA32_U_ControlPanel_update_control_adc(uint32_t adc_number) {
   uint8_t adc_control_value_candidate = PRA32_U_ControlPanel_adc_control_value_candidate(adc_number);
 
@@ -575,6 +577,7 @@ static INLINE boolean PRA32_U_ControlPanel_update_control_adc(uint32_t adc_numbe
 
   return false;
 }
+#endif
 
 static INLINE void PRA32_U_ControlPanel_set_draw_position(uint8_t x, uint8_t y) {
   uint8_t commands[] = {0x00,  static_cast<uint8_t>(0xB0 + y), 
@@ -1030,6 +1033,53 @@ INLINE void PRA32_U_ControlPanel_initialize_parameters() {
 }
 
 #if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+INLINE int32_t PRA32_U_ControlPanel_get_encoder_step(uint8_t target) {
+  int32_t midi_step = 1;
+
+  if ((target >= RD_PROGRAM_0 && target <= RD_PROGRAM_15) ||
+      (target >= WR_PROGRAM_0 && target <= WR_PROGRAM_15) ||
+      target == RD_PANEL_PRMS || target == IN_PANEL_PRMS || target == WR_PANEL_PRMS ||
+      target == SEQ_RAND_PITCH || target == SEQ_RAND_VELO) {
+        midi_step = 64; // Trigger: 0 -> 64
+  } else {
+    switch (target) {
+      case OSC_1_WAVE:
+      case OSC_2_WAVE:
+      case VOICE_MODE:
+      case LFO_WAVE:
+      case SEQ_GATE_TIME:
+      case PANEL_SCALE:
+        midi_step = 25; // ~6 values
+        break;
+      case FILTER_KEY_TRK:
+      case EG_OSC_DST:
+      case LFO_OSC_DST:
+      case BTH_AMP_MOD:
+      case SEQ_STEP_NOTE:
+      case SEQ_MODE:
+        midi_step = 43; // ~3 values (127/3 approx 42)
+        break;
+      case FILTER_MODE:
+      case EG_AMP_MOD:
+      case REL_EQ_DECAY:
+      case SUSTAIN_PEDAL:
+      case VOICE_ASGN_MODE:
+      case DELAY_MODE:
+      case SEQ_CLOCK_SRC:
+      case PANEL_PLAY_MODE:
+        midi_step = 64; // ~2 values
+        break;
+      case SEQ_NUM_STEPS:
+        midi_step = 4;
+        break;
+      default:
+        midi_step = 1;
+        break;
+    }
+  }
+  return midi_step * PRA32_U_ANALOG_INPUT_DENOMINATOR;
+}
+
 INLINE void PRA32_U_ControlPanel_update_encoder() {
 #if defined(PRA32_U_USE_CONTROL_PANEL)
   // Encoder switch
@@ -1045,7 +1095,10 @@ INLINE void PRA32_U_ControlPanel_update_encoder() {
 
   if (s_sw_counter > 10) { // Threshold
      if (s_encoder_sw_prev == 1) {
-       s_encoder_mode = !s_encoder_mode; // Toggle mode
+       s_encoder_selected_slot++;
+       if (s_encoder_selected_slot >= 3) {
+         s_encoder_selected_slot = 0;
+       }
        s_encoder_sw_prev = 0;
      }
   }
@@ -1061,36 +1114,21 @@ INLINE void PRA32_U_ControlPanel_update_encoder() {
       direction = -direction;
 #endif
 
-      if (s_encoder_mode == 0) {
-        // Navigation Mode
-        // We use direction to change selected slot.
-        // direction is +/- 1.
-        int slot = s_encoder_selected_slot;
-        if (direction > 0) {
-          slot++;
-          if (slot > 2) slot = 0;
-        } else {
-          slot--;
-          if (slot < 0) slot = 2;
-        }
-        s_encoder_selected_slot = slot;
-      } else {
-        // Adjustment Mode
-        int32_t change = direction * PRA32_U_ANALOG_INPUT_DENOMINATOR;
+      uint8_t target = s_adc_control_target[s_encoder_selected_slot];
+      int32_t change = direction * PRA32_U_ControlPanel_get_encoder_step(target);
 
-        // Update the current value for the selected slot
-        int32_t new_value = s_adc_current_value[s_encoder_selected_slot] + change;
+      // Update the current value for the selected slot
+      int32_t new_value = s_adc_current_value[s_encoder_selected_slot] + change;
 
-        // Clamp
-        int32_t max_val = 127 * PRA32_U_ANALOG_INPUT_DENOMINATOR;
-        if (new_value < 0) new_value = 0;
-        if (new_value > max_val) new_value = max_val;
+      // Clamp
+      int32_t max_val = 127 * PRA32_U_ANALOG_INPUT_DENOMINATOR;
+      if (new_value < 0) new_value = 0;
+      if (new_value > max_val) new_value = max_val;
 
-        s_adc_current_value[s_encoder_selected_slot] = new_value;
+      s_adc_current_value[s_encoder_selected_slot] = new_value;
 
-        // Ensure "catched" is true so updates are sent
-        s_adc_control_catched[s_encoder_selected_slot] = true;
-      }
+      // Ensure "catched" is true so updates are sent
+      s_adc_control_catched[s_encoder_selected_slot] = true;
     }
   }
 #endif
