@@ -1445,11 +1445,19 @@ INLINE void PRA32_U_ControlPanel_update_display_buffer(uint32_t loop_counter) {
       char value_display_text[5] = {};
       boolean exists = PRA32_U_ControlPanel_calc_value_display(adc_control_target_0, current_controller_value, value_display_text);
       if (exists) {
-        s_display_buffer[7][ 5] = '[';
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+        if (s_encoder_mode == 1 && s_encoder_selected_slot == 0) {
+          s_display_buffer[7][ 5] = '*';
+          s_display_buffer[7][ 9] = '*';
+        } else
+#endif
+        {
+          s_display_buffer[7][ 5] = '[';
+          s_display_buffer[7][ 9] = ']';
+        }
         s_display_buffer[7][ 6] = value_display_text[0];
         s_display_buffer[7][ 7] = value_display_text[1];
         s_display_buffer[7][ 8] = value_display_text[2];
-        s_display_buffer[7][ 9] = ']';
       } else {
         std::memset(&s_display_buffer[7][ 5], ' ', 5);
       }
@@ -1482,11 +1490,19 @@ INLINE void PRA32_U_ControlPanel_update_display_buffer(uint32_t loop_counter) {
       char value_display_text[5] = {};
       boolean exists = PRA32_U_ControlPanel_calc_value_display(adc_control_target_1, current_controller_value, value_display_text);
       if (exists) {
-        s_display_buffer[7][16] = '[';
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+        if (s_encoder_mode == 1 && s_encoder_selected_slot == 1) {
+          s_display_buffer[7][16] = '*';
+          s_display_buffer[7][20] = '*';
+        } else
+#endif
+        {
+          s_display_buffer[7][16] = '[';
+          s_display_buffer[7][20] = ']';
+        }
         s_display_buffer[7][17] = value_display_text[0];
         s_display_buffer[7][18] = value_display_text[1];
         s_display_buffer[7][19] = value_display_text[2];
-        s_display_buffer[7][20] = ']';
       } else {
         std::memset(&s_display_buffer[7][16], ' ', 5);
       }
@@ -1519,11 +1535,19 @@ INLINE void PRA32_U_ControlPanel_update_display_buffer(uint32_t loop_counter) {
       char value_display_text[5] = {};
       boolean exists = PRA32_U_ControlPanel_calc_value_display(adc_control_target_2, current_controller_value, value_display_text);
       if (exists) {
-        s_display_buffer[3][16] = '[';
+#if defined(PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER)
+        if (s_encoder_mode == 1 && s_encoder_selected_slot == 2) {
+          s_display_buffer[3][16] = '*';
+          s_display_buffer[3][20] = '*';
+        } else
+#endif
+        {
+          s_display_buffer[3][16] = '[';
+          s_display_buffer[3][20] = ']';
+        }
         s_display_buffer[3][17] = value_display_text[0];
         s_display_buffer[3][18] = value_display_text[1];
         s_display_buffer[3][19] = value_display_text[2];
-        s_display_buffer[3][20] = ']';
       } else {
         std::memset(&s_display_buffer[3][16], ' ', 5);
       }
