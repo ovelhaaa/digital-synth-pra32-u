@@ -13,16 +13,25 @@
     - Playing by panel operation
     - Built-in monophonic 8-step sequencer
     - Panel and Step Sequencer Parameters
-- This option requires 3 SWs (tactile switches), 3 VRs (ADCs), and a monochrome 128x64 OLED Display based on SSD1306 series drivers
-    - Tested with Pimoroni Pico Audio Pack, necobit電子 MIDI Unit for GROVE (optional), Long Leg 2x20 Pin Socket * 2, Seeed Studio's Grove Shield for Pi Pico, Buttons * 3, Rotary Angle Sensors * 3, and an OLED Display 0.96 inch
-- Uncomment out `//#define PRA32_U_USE_CONTROL_PANEL` in "Digital-Synth-PRA32-U.ino" and modify the constants
+- This option requires 3 SWs (tactile switches) and a monochrome 128x64 OLED Display based on SSD1306 series drivers. For parameter control, it requires either 3 VRs (ADCs) OR 1 Rotary Encoder with Push Button.
+    - Tested with Pimoroni Pico Audio Pack, necobit電子 MIDI Unit for GROVE (optional), Long Leg 2x20 Pin Socket * 2, Seeed Studio's Grove Shield for Pi Pico, Buttons * 3, Rotary Angle Sensors * 3 (or a Rotary Encoder with Push Button), and an OLED Display 0.96 inch
+- Uncomment out `//#define PRA32_U_USE_CONTROL_PANEL` in "Digital-Synth-PRA32-U.ino".
+- Select one of the input methods by uncommenting `PRA32_U_USE_CONTROL_PANEL_ANALOG_INPUT` or `PRA32_U_USE_CONTROL_PANEL_ROTARY_ENCODER` (default enabled) and modify the constants.
 - Inputs
     - SW0: Prev Key (Push to the previous page, Long press to the previous group)
     - SW1: Next Key (Push to the next page, Long press to the next group)
     - SW2: Play Key (Normal Mode: press to play, Sequencer Mode: push to start/stop)
-    - VR0 (ADC0): Parameter A
-    - VR1 (ADC1): Parameter B
-    - VR2 (ADC2): Parameter C
+    - Option 1: Analog Inputs (VRs)
+        - VR0 (ADC0): Parameter A
+        - VR1 (ADC1): Parameter B
+        - VR2 (ADC2): Parameter C
+    - Option 2: Rotary Encoder
+        - Encoder Rotation: Change the value of the selected parameter (highlighted on display)
+        - Encoder Switch: Select the parameter to control (cycles through A, B, C)
+        - Connections (default):
+            - CLK: Pin 26 (ADC0)
+            - DT: Pin 27 (ADC1)
+            - SW: Pin 28 (ADC2)
 - Group A
     - Synth Parameters
 - Group B
